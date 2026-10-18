@@ -1,0 +1,9 @@
+*.apk
+*.dex
+*.so
+*.arsc
+*.jar
+*.zip
+inputs/
+tools/
+.DS_Store

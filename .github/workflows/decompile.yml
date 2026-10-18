@@ -1,0 +1,70 @@
+name: Decompile One UI 9
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag containing both supplied One UI 9 APK files
+        required: true
+        default: oneui9-inputs
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oneui9-decompile
+  cancel-in-progress: false
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+          ref: main
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Download APKs from published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/oneui9-inputs"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'SystemUI.apk' --pattern 'TouchWizHome_2017.apk' \
+            --dir "$RUNNER_TEMP/oneui9-inputs"
+          ls -lh "$RUNNER_TEMP/oneui9-inputs"
+      - name: Download decompiler tools
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/jadx.zip" \
+            https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+          mkdir -p "$RUNNER_TEMP/jadx"
+          unzip -q "$RUNNER_TEMP/jadx.zip" -d "$RUNNER_TEMP/jadx"
+          chmod +x "$RUNNER_TEMP/jadx/bin/jadx"
+          curl -fL --retry 3 -o "$RUNNER_TEMP/apktool.jar" \
+            https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar
+      - name: Decompile both APKs
+        run: bash scripts/decompile.sh "$RUNNER_TEMP/oneui9-inputs"
+      - name: Commit both decompiled outputs together
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add SystemUI9 HomeUI9
+          if git diff --cached --quiet; then
+            echo 'No generated changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Add decompiled One UI 9 SystemUI and Home sources'
+          git push origin HEAD:main
+      - name: Job summary
+        if: always()
+        run: |
+          echo '## One UI 9 decompilation' >> "$GITHUB_STEP_SUMMARY"
+          echo 'See SystemUI9/ and HomeUI9/ on main. Check logs for errors.' >> "$GITHUB_STEP_SUMMARY"
